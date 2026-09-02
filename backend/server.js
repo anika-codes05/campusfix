@@ -11,18 +11,16 @@ const adminRoutes = require("./routes/adminRoutes");
 connectDB();
 
 const app = express();
+app.use(cors());
+app.use(express.json());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/issues", issueRoutes);
 app.use("/api/admin", adminRoutes);
-app.use("/api/issues", adminRoutes);
+app.use("/api/issues", adminRoutes); // adds PATCH /api/issues/:id/status alongside issueRoutes
 
 // serve uploaded photos statically
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
-app.use("/api/auth", authRoutes);
-app.use("/api/issues", issueRoutes);
-app.use("/api/admin", adminRoutes);
 
 app.get("/", (req, res) => {
   res.send("CampusFix API is running");

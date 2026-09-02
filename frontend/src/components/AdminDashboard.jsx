@@ -1,5 +1,7 @@
-import { useMemo, useState } from "react";
-import { AlertTriangle, Clock, CheckCircle2, MapPin, ThumbsUp, ChevronDown, Search, LayoutGrid } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Clock, CheckCircle2, MapPin, ThumbsUp, ChevronDown, Search, LayoutGrid, List, Map as MapIcon, Loader2, WifiOff, ShieldAlert } from "lucide-react";
+import IssueMap from "./IssueMap";
+import { apiFetch } from "../api";
 
 /* ---------------------------------------------------------
    CampusFix — Admin Dashboard
@@ -10,8 +12,16 @@ import { AlertTriangle, Clock, CheckCircle2, MapPin, ThumbsUp, ChevronDown, Sear
      accent        #028090 (teal) / #00A896 (secondary) / #02C39A (mint)
      border        #E4EEEC
      status: reported = coral/orange, in_progress = amber, resolved = mint
-   Mock data only — no API calls. Swap fetchIssues()/fetchStats()
-   for real calls once backend routes are wired up.
+
+   Wired to the real backend (main merged 2026-08-27):
+     GET   /api/issues?category=&status=&sort=
+     GET   /api/admin/stats
+     PATCH /api/issues/:id/status
+   Category/status filters and upvote-sort are sent to the server as query
+   params. "urgency" and "newest" aren't in the backend's sort contract
+   (only sort=upvotes is), so for those two we fetch unsorted and sort
+   client-side instead — flag this to Aradhya if the backend later adds
+   more sort options server-side.
 --------------------------------------------------------- */
 
 const COLORS = {
@@ -41,108 +51,6 @@ const CATEGORY_META = {
 
 const STATUS_ORDER = ["reported", "in_progress", "resolved"];
 
-// ---------- Mock data (matches Issue shape from the API contract) ----------
-const MOCK_ISSUES = [
-  {
-    _id: "1",
-    title: "Flickering tube light in Block C corridor",
-    description: "Light near room 214 flickers constantly, strains eyes at night.",
-    category: "electrical",
-    location: { lat: 28.6139, lng: 77.209, blockName: "Block C" },
-    photoUrl: null,
-    reportedBy: [{ name: "Meera Iyer", email: "meera@campus.edu" }],
-    upvotes: Array(14).fill({}),
-    status: "reported",
-    createdAt: "2026-08-15T09:20:00Z",
-  },
-  {
-    _id: "2",
-    title: "Leaking pipe outside Hostel D washroom",
-    description: "Water pooling on the floor since yesterday evening, slippery.",
-    category: "plumbing",
-    location: { lat: 28.615, lng: 77.208, blockName: "Hostel D" },
-    photoUrl: null,
-    reportedBy: [{ name: "Aman Verma", email: "aman@campus.edu" }, { name: "Riya Sen", email: "riya@campus.edu" }],
-    upvotes: Array(31).fill({}),
-    status: "in_progress",
-    createdAt: "2026-08-13T14:05:00Z",
-  },
-  {
-    _id: "3",
-    title: "Mess serving cold food during dinner",
-    description: "Dinner has been served lukewarm to cold for the past three days.",
-    category: "mess",
-    location: { lat: 28.6142, lng: 77.2101, blockName: "Central Mess" },
-    photoUrl: null,
-    reportedBy: [{ name: "Kabir Shah", email: "kabir@campus.edu" }],
-    upvotes: Array(52).fill({}),
-    status: "reported",
-    createdAt: "2026-08-16T19:40:00Z",
-  },
-  {
-    _id: "4",
-    title: "Broken handrail on library staircase",
-    description: "Handrail is loose near the second floor landing, safety risk.",
-    category: "infrastructure",
-    location: { lat: 28.6128, lng: 77.2095, blockName: "Library" },
-    photoUrl: null,
-    reportedBy: [{ name: "Nisha Patel", email: "nisha@campus.edu" }],
-    upvotes: Array(9).fill({}),
-    status: "resolved",
-    createdAt: "2026-08-09T11:15:00Z",
-    resolvedAt: "2026-08-12T10:00:00Z",
-  },
-  {
-    _id: "5",
-    title: "Projector not turning on in Room 301",
-    description: "Projector in the seminar room hasn't worked for a week.",
-    category: "electrical",
-    location: { lat: 28.6135, lng: 77.211, blockName: "Academic Block" },
-    photoUrl: null,
-    reportedBy: [{ name: "Devansh Rao", email: "devansh@campus.edu" }],
-    upvotes: Array(6).fill({}),
-    status: "in_progress",
-    createdAt: "2026-08-14T08:30:00Z",
-  },
-  {
-    _id: "6",
-    title: "Clogged drain near canteen entrance",
-    description: "Standing water attracting mosquitoes, needs urgent clearing.",
-    category: "plumbing",
-    location: { lat: 28.6141, lng: 77.2088, blockName: "Canteen" },
-    photoUrl: null,
-    reportedBy: [{ name: "Sara Khan", email: "sara@campus.edu" }],
-    upvotes: Array(22).fill({}),
-    status: "reported",
-    createdAt: "2026-08-16T07:50:00Z",
-  },
-  {
-    _id: "7",
-    title: "Vending machine out of order",
-    description: "Coin slot jammed, machine displays error since Monday.",
-    category: "other",
-    location: { lat: 28.6133, lng: 77.2079, blockName: "Block A" },
-    photoUrl: null,
-    reportedBy: [{ name: "Yash Malhotra", email: "yash@campus.edu" }],
-    upvotes: Array(3).fill({}),
-    status: "resolved",
-    createdAt: "2026-08-05T16:00:00Z",
-    resolvedAt: "2026-08-07T09:30:00Z",
-  },
-  {
-    _id: "8",
-    title: "Cracked window pane in Hostel B common room",
-    description: "Glass is cracked and could fall, needs replacement soon.",
-    category: "infrastructure",
-    location: { lat: 28.6119, lng: 77.2105, blockName: "Hostel B" },
-    photoUrl: null,
-    reportedBy: [{ name: "Priya Nair", email: "priya@campus.edu" }],
-    upvotes: Array(17).fill({}),
-    status: "in_progress",
-    createdAt: "2026-08-12T13:10:00Z",
-  },
-];
-
 function timeAgo(iso) {
   const diffMs = Date.now() - new Date(iso).getTime();
   const hrs = Math.round(diffMs / 3600000);
@@ -164,13 +72,14 @@ function StatusBadge({ status }) {
   );
 }
 
-function StatusDropdown({ status, onChange }) {
+function StatusDropdown({ status, onChange, saving }) {
   return (
     <div className="relative inline-block">
       <select
         value={status}
+        disabled={saving}
         onChange={(e) => onChange(e.target.value)}
-        className="appearance-none cursor-pointer rounded-lg border py-1.5 pl-3 pr-8 text-xs font-medium outline-none transition-colors"
+        className="appearance-none cursor-pointer rounded-lg border py-1.5 pl-3 pr-8 text-xs font-medium outline-none transition-colors disabled:opacity-60 disabled:cursor-wait"
         style={{
           borderColor: COLORS.border,
           color: STATUS_META[status].fg,
@@ -183,10 +92,17 @@ function StatusDropdown({ status, onChange }) {
           </option>
         ))}
       </select>
-      <ChevronDown
-        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5"
-        style={{ color: STATUS_META[status].fg }}
-      />
+      {saving ? (
+        <Loader2
+          className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin"
+          style={{ color: STATUS_META[status].fg }}
+        />
+      ) : (
+        <ChevronDown
+          className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5"
+          style={{ color: STATUS_META[status].fg }}
+        />
+      )}
     </div>
   );
 }
@@ -215,56 +131,146 @@ function StatCard({ icon: Icon, label, value, tint }) {
   );
 }
 
+function Banner({ icon: Icon, message, className = "" }) {
+  return (
+    <div
+      className={`flex items-center gap-2.5 rounded-2xl border p-4 text-sm ${className}`}
+      style={{ borderColor: "#F3D9CE", background: "#FDEDE4", color: "#C1502E" }}
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      {message}
+    </div>
+  );
+}
+
+function LoadingRows() {
+  return (
+    <div className="flex items-center justify-center gap-2 p-10 text-sm" style={{ color: COLORS.textMuted }}>
+      <Loader2 className="h-4 w-4 animate-spin" />
+      Loading issues…
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
-  const [issues, setIssues] = useState(MOCK_ISSUES);
+  const [issues, setIssues] = useState([]);
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState("upvotes");
   const [query, setQuery] = useState("");
+  const [view, setView] = useState("list"); // 'list' | 'map'
 
-  const stats = useMemo(() => {
-    const open = issues.filter((i) => i.status === "reported").length;
-    const inProgress = issues.filter((i) => i.status === "in_progress").length;
-    const resolved = issues.filter((i) => i.status === "resolved").length;
-    return { open, inProgress, resolved, total: issues.length };
-  }, [issues]);
+  // Issues list: loading/error state
+  const [issuesLoading, setIssuesLoading] = useState(true);
+  const [issuesError, setIssuesError] = useState(null); // { status, message } | null
 
+  // Stats bar: separate loading/error state, since it's a separate request
+  const [stats, setStats] = useState({ open: 0, inProgress: 0, resolved: 0, total: 0 });
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [statsError, setStatsError] = useState(null);
+
+  // Per-row "saving" state for status updates, keyed by issue id, so only
+  // the row being changed shows a spinner rather than blocking the page.
+  const [updatingIds, setUpdatingIds] = useState({});
+
+  // ---- Fetch issues whenever server-side filters change ----
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function fetchIssues() {
+      setIssuesLoading(true);
+      setIssuesError(null);
+      try {
+        const params = new URLSearchParams();
+        if (categoryFilter !== "all") params.set("category", categoryFilter);
+        if (statusFilter !== "all") params.set("status", statusFilter);
+        // Backend contract only documents sort=upvotes — for "newest" and
+        // "urgency" we fetch unsorted and sort client-side below.
+        if (sortBy === "upvotes") params.set("sort", "upvotes");
+
+        const data = await apiFetch(`/api/issues?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        setIssues(Array.isArray(data) ? data : []);
+      } catch (err) {
+        if (err.name === "AbortError") return;
+        setIssuesError({ status: err.status, message: err.message });
+      } finally {
+        setIssuesLoading(false);
+      }
+    }
+
+    fetchIssues();
+    return () => controller.abort();
+  }, [categoryFilter, statusFilter, sortBy]);
+
+  // ---- Fetch stats once on mount (independent of issue filters — the
+  // stats bar always reflects totals across all issues) ----
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function fetchStats() {
+      setStatsLoading(true);
+      setStatsError(null);
+      try {
+        const data = await apiFetch("/api/admin/stats", { signal: controller.signal });
+        setStats(data);
+      } catch (err) {
+        if (err.name === "AbortError") return;
+        setStatsError({ status: err.status, message: err.message });
+      } finally {
+        setStatsLoading(false);
+      }
+    }
+
+    fetchStats();
+    return () => controller.abort();
+  }, []);
+
+  // Client-side search + fallback sorting (newest/urgency) on top of
+  // whatever the server already filtered/sorted for us.
   const filtered = useMemo(() => {
     let list = [...issues];
-    if (categoryFilter !== "all") list = list.filter((i) => i.category === categoryFilter);
-    if (statusFilter !== "all") list = list.filter((i) => i.status === statusFilter);
     if (query.trim()) {
       const q = query.toLowerCase();
       list = list.filter(
         (i) =>
           i.title.toLowerCase().includes(q) ||
-          i.location.blockName.toLowerCase().includes(q)
+          i.location?.blockName?.toLowerCase().includes(q)
       );
     }
-    if (sortBy === "upvotes") {
-      list.sort((a, b) => b.upvotes.length - a.upvotes.length);
-    } else if (sortBy === "newest") {
+    if (sortBy === "newest") {
       list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     } else if (sortBy === "urgency") {
       const rank = { reported: 0, in_progress: 1, resolved: 2 };
       list.sort((a, b) => rank[a.status] - rank[b.status] || b.upvotes.length - a.upvotes.length);
     }
     return list;
-  }, [issues, categoryFilter, statusFilter, sortBy, query]);
+  }, [issues, sortBy, query]);
 
-  function updateStatus(id, newStatus) {
-    setIssues((prev) =>
-      prev.map((i) =>
-        i._id === id
-          ? {
-              ...i,
-              status: newStatus,
-              resolvedAt: newStatus === "resolved" ? new Date().toISOString() : i.resolvedAt,
-            }
-          : i
-      )
-    );
-    // TODO: replace with PATCH /api/issues/:id/status once backend route is finished
+  async function updateStatus(id, newStatus) {
+    setUpdatingIds((prev) => ({ ...prev, [id]: true }));
+    try {
+      const updatedIssue = await apiFetch(`/api/issues/${id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: newStatus }),
+      });
+      // Wait-for-server: only commit the change once the PATCH confirms,
+      // using the server's copy of the issue (not an optimistic guess).
+      setIssues((prev) => prev.map((i) => (i._id === id ? updatedIssue : i)));
+    } catch (err) {
+      const msg =
+        err.status === 403
+          ? "Admin access required to update status."
+          : err.message || "Failed to update status.";
+      window.alert(msg); // simple for now — swap for a toast if you add one later
+    } finally {
+      setUpdatingIds((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
   }
 
   return (
@@ -280,22 +286,57 @@ export default function AdminDashboard() {
               Review, prioritize, and update campus issue reports.
             </p>
           </div>
-          <div
-            className="hidden sm:flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium"
-            style={{ background: COLORS.accent + "14", color: COLORS.accent }}
-          >
-            <LayoutGrid className="h-3.5 w-3.5" />
-            Mock data — API not connected
+          <div className="flex items-center gap-3">
+            {/* List / Map toggle */}
+            <div
+              className="inline-flex rounded-xl border p-1"
+              style={{ borderColor: COLORS.border, background: COLORS.bg }}
+            >
+              <button
+                onClick={() => setView("list")}
+                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+                style={{
+                  background: view === "list" ? COLORS.accent : "transparent",
+                  color: view === "list" ? "#FFFFFF" : COLORS.textMuted,
+                }}
+              >
+                <List className="h-3.5 w-3.5" />
+                List
+              </button>
+              <button
+                onClick={() => setView("map")}
+                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+                style={{
+                  background: view === "map" ? COLORS.accent : "transparent",
+                  color: view === "map" ? "#FFFFFF" : COLORS.textMuted,
+                }}
+              >
+                <MapIcon className="h-3.5 w-3.5" />
+                Map
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Stats bar */}
-        <div className="mb-6 flex flex-wrap gap-3">
-          <StatCard icon={AlertTriangle} label="Reported" value={stats.open} tint="#E8734A" />
-          <StatCard icon={Clock} label="In progress" value={stats.inProgress} tint="#E8AC3C" />
-          <StatCard icon={CheckCircle2} label="Resolved" value={stats.resolved} tint={COLORS.mint} />
-          <StatCard icon={LayoutGrid} label="Total issues" value={stats.total} tint={COLORS.accent} />
-        </div>
+        {statsError ? (
+          <Banner
+            className="mb-6"
+            icon={statsError.status === 403 ? ShieldAlert : WifiOff}
+            message={
+              statsError.status === 403
+                ? "Admin access required to view stats."
+                : `Couldn't load stats: ${statsError.message}`
+            }
+          />
+        ) : (
+          <div className="mb-6 flex flex-wrap gap-3">
+            <StatCard icon={AlertTriangle} label="Reported" value={statsLoading ? "—" : stats.open} tint="#E8734A" />
+            <StatCard icon={Clock} label="In progress" value={statsLoading ? "—" : stats.inProgress} tint="#E8AC3C" />
+            <StatCard icon={CheckCircle2} label="Resolved" value={statsLoading ? "—" : stats.resolved} tint={COLORS.mint} />
+            <StatCard icon={LayoutGrid} label="Total issues" value={statsLoading ? "—" : stats.total} tint={COLORS.accent} />
+          </div>
+        )}
 
         {/* Filters */}
         <div
@@ -356,7 +397,32 @@ export default function AdminDashboard() {
           </select>
         </div>
 
+        {/* Issues: loading / error / content */}
+        {issuesError ? (
+          <Banner
+            icon={issuesError.status === 403 ? ShieldAlert : WifiOff}
+            message={
+              issuesError.status === 403
+                ? "Admin access required to view issues. Ask Aradhya for an admin test token."
+                : `Couldn't load issues: ${issuesError.message}`
+            }
+          />
+        ) : issuesLoading ? (
+          <div
+            className="rounded-2xl border"
+            style={{ borderColor: COLORS.border, background: COLORS.bg }}
+          >
+            <LoadingRows />
+          </div>
+        ) : (
+          <>
+        {/* Map view */}
+        {view === "map" && (
+          <IssueMap issues={filtered} onStatusChange={updateStatus} />
+        )}
+
         {/* Desktop table */}
+        {view === "list" && (
         <div
           className="hidden md:block overflow-hidden rounded-2xl border"
           style={{ borderColor: COLORS.border, background: COLORS.bg }}
@@ -400,6 +466,11 @@ export default function AdminDashboard() {
                       <MapPin className="h-3.5 w-3.5" />
                       {issue.location.blockName}
                     </span>
+                    {issue.location.floorRoom && (
+                      <div className="text-xs mt-0.5 pl-5" style={{ color: COLORS.textMuted }}>
+                        {issue.location.floorRoom}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <span className="inline-flex items-center gap-1 font-medium">
@@ -411,7 +482,11 @@ export default function AdminDashboard() {
                     {timeAgo(issue.createdAt)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <StatusDropdown status={issue.status} onChange={(v) => updateStatus(issue._id, v)} />
+                    <StatusDropdown
+                      status={issue.status}
+                      saving={!!updatingIds[issue._id]}
+                      onChange={(v) => updateStatus(issue._id, v)}
+                    />
                   </td>
                 </tr>
               ))}
@@ -423,8 +498,10 @@ export default function AdminDashboard() {
             </div>
           )}
         </div>
+        )}
 
         {/* Mobile cards */}
+        {view === "list" && (
         <div className="md:hidden flex flex-col gap-3">
           {filtered.map((issue) => (
             <div
@@ -440,6 +517,7 @@ export default function AdminDashboard() {
                   <div className="text-xs mt-0.5" style={{ color: COLORS.textMuted }}>
                     {CATEGORY_META[issue.category].icon} {CATEGORY_META[issue.category].label} ·{" "}
                     {issue.location.blockName}
+                    {issue.location.floorRoom ? ` · ${issue.location.floorRoom}` : ""}
                   </div>
                 </div>
                 <StatusBadge status={issue.status} />
@@ -452,7 +530,11 @@ export default function AdminDashboard() {
                   <ThumbsUp className="h-3.5 w-3.5" style={{ color: COLORS.accent }} />
                   {issue.upvotes.length} · {timeAgo(issue.createdAt)}
                 </span>
-                <StatusDropdown status={issue.status} onChange={(v) => updateStatus(issue._id, v)} />
+                <StatusDropdown
+                  status={issue.status}
+                  saving={!!updatingIds[issue._id]}
+                  onChange={(v) => updateStatus(issue._id, v)}
+                />
               </div>
             </div>
           ))}
@@ -465,6 +547,9 @@ export default function AdminDashboard() {
             </div>
           )}
         </div>
+        )}
+          </>
+        )}
       </div>
     </div>
   );
