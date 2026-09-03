@@ -25,6 +25,25 @@ export function clearToken() {
 }
 
 /**
+ * Best-effort decode of the JWT payload (NOT verified — verification is the
+ * backend's job). Used only for lightweight UI decisions like "does this
+ * issue's upvotes array already contain the current user's id" so the
+ * upvote button can render filled/outline correctly. Never trust this for
+ * anything security-sensitive.
+ */
+export function getUserId() {
+  const token = getToken();
+  if (!token) return null;
+  try {
+    const payload = token.split(".")[1];
+    const decoded = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    return decoded.id || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Thin fetch wrapper: adds the base URL, JSON headers, and the auth token
  * (when present). Throws an Error with a `.status` property on non-2xx
  * responses so callers can branch on err.status === 403, etc.
