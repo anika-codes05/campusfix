@@ -80,7 +80,7 @@ export default function IssueMap({ issues, onStatusChange, center }) {
           validIssues.reduce((sum, i) => sum + i.location.lat, 0) / validIssues.length,
           validIssues.reduce((sum, i) => sum + i.location.lng, 0) / validIssues.length,
         ]
-      : [28.6139, 77.209]); // fallback: campus-ish default so the map never renders blank
+      : [28.7526, 77.4985]); // fallback: KIET Ghaziabad, so the map never renders blank
 
   return (
     <div
